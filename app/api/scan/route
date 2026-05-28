@@ -1,0 +1,126 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+
+// Forces the Node runtime — Supabase server client uses next/headers cookies().
+export const runtime = "nodejs";
+
+const bookSchema = z.object({
+  title: z.string().min(1).max(200),
+  author: z.string().max(200).optional(),
+  genre: z.string().min(1).max(80),
+  description: z.string().min(20).max(2000),
+  amazonUrl: z.string().url().or(z.literal("")).optional(),
+});
+
+/**
+ * POST /api/scan
+ * Body: { title, author?, genre, description, amazonUrl? }
+ * Creates the book row, enqueues a scan row with status='pending',
+ * and returns 202 with the new scanId. The actual engine work is
+ * done by a background worker that watches for pending scans —
+ * never run dozens of AI calls inside an HTTP request.
+ */
+export async function POST(request: Request) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const parsed = bookSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid input", issues: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+
+  const supabase = await createClient();
+
+  // getUser() verifies the JWT with the auth server — required before any insert.
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+  if (userErr || !user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  // 1. Create the book row (RLS will reject if user_id != auth.uid()).
+  const { data: book, error: bookErr } = await supabase
+    .from("books")
+    .insert({
+      user_id: user.id,
+      title: parsed.data.title,
+      genre: parsed.data.genre,
+      description: parsed.data.description,
+      author: parsed.data.author ?? null,
+      amazon_url: parsed.data.amazonUrl || null,
+    })
+    .select("id")
+    .single();
+
+  if (bookErr || !book) {
+    return NextResponse.json(
+      { error: bookErr?.message ?? "Could not save book" },
+      { status: 500 },
+    );
+  }
+
+  // 2. Enqueue the scan. A separate worker / Edge Function picks this up.
+  const { data: scan, error: scanErr } = await supabase
+    .from("scans")
+    .insert({ book_id: book.id, status: "pending" })
+    .select("id")
+    .single();
+
+  if (scanErr || !scan) {
+    return NextResponse.json(
+      { error: scanErr?.message ?? "Could not start scan" },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ scanId: scan.id }, { status: 202 });
+}
+
+/**
+ * GET /api/scan
+ * Lists scans for the signed-in user, newest first.
+ * Joins book title/genre so the dashboard list doesn't need a second query.
+ * Optional ?limit=20 (max 100).
+ */
+export async function GET(request: Request) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+  if (userErr || !user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const limitParam = Number(url.searchParams.get("limit") ?? 20);
+  const limit = Number.isFinite(limitParam)
+    ? Math.min(Math.max(1, limitParam), 100)
+    : 20;
+
+  const { data, error } = await supabase
+    .from("scans")
+    .select(
+      "id, status, visibility_score, recall_status, created_at, book:books!inner(id, title, genre, user_id)",
+    )
+    .eq("book.user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ scans: data ?? [] });
+}
