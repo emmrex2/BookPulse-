@@ -1,0 +1,96 @@
+import "server-only";
+import OpenAI from "openai";
+
+/**
+ * Server-only OpenAI client. Read the key inside the function — module-level
+ * reads can break on edge runtimes that bind env per-request.
+ */
+function getClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY is not set. Add it to .env.local (and Vercel project env in production).",
+    );
+  }
+  return new OpenAI({ apiKey });
+}
+
+export type PromptBucket = "discovery" | "comp" | "trope" | "direct";
+
+export interface ScanPrompt {
+  bucket: PromptBucket;
+  text: string;
+}
+
+/**
+ * Build the 4-bucket prompt set from a book's metadata.
+ * Discovery/comp/trope go through retrieval-capable engines.
+ * `direct` is the recall baseline ("does the AI know this book exists at all?").
+ */
+export function buildPrompts(input: {
+  title: string;
+  author?: string;
+  genre: string;
+  comps?: string[];
+  tropes?: string[];
+}): ScanPrompt[] {
+  const prompts: ScanPrompt[] = [];
+  const year = new Date().getFullYear();
+
+  prompts.push({
+    bucket: "discovery",
+    text: `Best ${input.genre} books readers are recommending in ${year}.`,
+  });
+  prompts.push({
+    bucket: "discovery",
+    text: `Top indie ${input.genre} books I should read next.`,
+  });
+
+  for (const comp of input.comps ?? []) {
+    prompts.push({ bucket: "comp", text: `Books like "${comp}" — recommendations.` });
+  }
+
+  for (const trope of input.tropes ?? []) {
+    prompts.push({
+      bucket: "trope",
+      text: `${trope} ${input.genre} books — your top picks.`,
+    });
+  }
+
+  prompts.push({
+    bucket: "direct",
+    text: `Tell me about the book "${input.title}"${input.author ? ` by ${input.author}` : ""}.`,
+  });
+
+  return prompts;
+}
+
+/**
+ * Run a single prompt and capture both the answer text AND any cited URLs.
+ * Note: vanilla chat.completions does not retrieve the web; this is the
+ * memory-only baseline. Wire Perplexity / OpenAI search / Gemini in separate
+ * runners under lib/ai/runners/* when you build the engine out.
+ */
+export async function runBaselinePrompt(prompt: string) {
+  const client = getClient();
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.7,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You are a knowledgeable book recommendation assistant. Recommend specific titles by name when asked, with brief reasons. If you don't know a book, say so explicitly.",
+      },
+      { role: "user", content: prompt },
+    ],
+  });
+
+  const text = completion.choices[0]?.message?.content ?? "";
+  return {
+    engine: "openai_baseline" as const,
+    prompt,
+    responseText: text,
+    sources: [] as string[], // populated by retrieval-based runners
+  };
+}
