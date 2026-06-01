@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AnalyzePage() {
   const [title, setTitle] = useState("");
@@ -9,27 +9,29 @@ export default function AnalyzePage() {
   const [genre, setGenre] = useState("");
   const [description, setDescription] = useState("");
 
-  async function handleSubmit() {
-    const { data, error } = await supabase
-      .from("books")
-      .insert([
-        {
-          title,
-          author,
-          genre,
-          description,
-        },
-      ]);
+async function handleSubmit() {
+  const supabase = createClient();
 
-    if (error) {
-      console.error(error);
-      alert("Error saving book");
-      return;
-    }
+  const { data, error } = await supabase
+    .from("books")
+    .insert([
+      {
+        title,
+        author,
+        genre,
+        description,
+      },
+    ]);
 
-    alert("Book saved successfully!");
-    console.log(data);
+  if (error) {
+    console.error(error);
+    alert(`Error: ${error.message}`);
+    return;
   }
+
+  alert("Book saved successfully!");
+  console.log(data);
+}
 
   return (
     <main className="min-h-screen bg-background px-6 py-20">
