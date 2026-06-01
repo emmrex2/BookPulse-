@@ -25,12 +25,28 @@ export function Navbar() {
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link href="/login">Sign in</Link>
-          </Button>
-          <Button asChild size="sm" className="bg-brand-gradient text-primary-foreground">
-            <Link href="/signup">Start free</Link>
-          </Button>
+<div className="flex items-center gap-2">
+
+  <Link href="/login">
+    <Button
+      variant="ghost"
+      size="sm"
+      className="hidden sm:inline-flex"
+    >
+      Sign in
+    </Button>
+  </Link>
+
+  <Link href="/signup">
+    <Button
+      size="sm"
+      className="bg-brand-gradient text-primary-foreground"
+    >
+      Start free
+    </Button>
+  </Link>
+
+</div>
         </div>
       </div>
     </header>
