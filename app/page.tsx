@@ -35,12 +35,23 @@ export default function Home() {
           </p>
 
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button asChild size="lg" className="bg-brand-gradient text-primary-foreground shadow-lg shadow-[var(--brand-accent)]/20">
-              <Link href="/signup">Analyze my book</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline" className="bg-card/60 backdrop-blur">
-              <Link href="#how">See a demo report</Link>
-            </Button>
+<Link href="/signup">
+  <Button
+    size="lg"
+    className="bg-brand-gradient text-primary-foreground shadow-lg shadow-[var(--brand-accent)]/20"
+  >
+    Analyze my book
+  </Button>
+</Link>
+ <Link href="#how">
+  <Button
+    size="lg"
+    variant="outline"
+    className="bg-card/60 backdrop-blur"
+  >
+    See a demo report
+  </Button>
+</Link>
           </div>
 
           <p className="mt-6 text-xs text-muted-foreground">
